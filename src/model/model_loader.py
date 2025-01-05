@@ -1,6 +1,5 @@
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import bitsandbytes as bnb
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from typing import Tuple
 
 class LlamaModelLoader:
@@ -17,10 +16,11 @@ class LlamaModelLoader:
         # Initialize quantization config if needed
         quantization_config = None
         if load_4bit:
-            quantization_config = bnb.nn.modules.Linear4bit.Config(
-                compute_dtype=torch.float16,
-                compress_statistics=True,
-                quant_type="nf4"
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4"
             )
 
         # Load tokenizer
@@ -35,7 +35,8 @@ class LlamaModelLoader:
             device_map="auto",
             torch_dtype=torch.float16,
             quantization_config=quantization_config if load_4bit else None,
-            trust_remote_code=True
+            trust_remote_code=True,
+            attn_implementation="eager"
         )
 
         return self.model, self.tokenizer

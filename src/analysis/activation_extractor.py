@@ -1,10 +1,11 @@
 import torch
 from typing import Dict, List
-from transformers import PreTrainedModel
+from transformers import PreTrainedModel, PreTrainedTokenizer
 
 class ActivationExtractor:
-    def __init__(self, model: PreTrainedModel):
+    def __init__(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizer):
         self.model = model
+        self.tokenizer = tokenizer
         self.activation_hooks = {}
         self.stored_activations = {}
 
@@ -13,7 +14,12 @@ class ActivationExtractor:
         Register a forward hook for the specified layer
         """
         def hook_fn(module, input, output):
-            self.stored_activations[layer_name] = output.detach()
+            # Handle tuple outputs (common in transformer layers)
+            if isinstance(output, tuple):
+                # Usually the first element contains the main output
+                self.stored_activations[layer_name] = output[0].detach()
+            else:
+                self.stored_activations[layer_name] = output.detach()
 
         # Get the layer using named modules
         for name, module in self.model.named_modules():
@@ -33,7 +39,7 @@ class ActivationExtractor:
             self.register_hook(layer_name)
 
         # Tokenize and run inference
-        inputs = self.model.tokenizer(input_text, return_tensors="pt").to(self.model.device)
+        inputs = self.tokenizer(input_text, return_tensors="pt").to(self.model.device)
         with torch.no_grad():
             self.model(**inputs)
 
