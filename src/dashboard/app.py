@@ -3,7 +3,7 @@ import torch
 from pathlib import Path
 import sys
 import plotly.graph_objects as go
-from typing import Dict
+from typing import Dict, List
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
@@ -14,6 +14,7 @@ from src.analysis.activation_extractor import ActivationExtractor
 from src.visualization.attention_vis import AttentionVisualizer
 from src.analysis.neuron_analyzer import NeuronAnalyzer
 from src.analysis.behavior_probe import BehaviorProbe
+from src.analysis.attribution import AttributionAnalyzer
 
 def init_session_state():
     """Initialize session state variables"""
@@ -56,6 +57,10 @@ def init_session_state():
             st.session_state.model,
             st.session_state.tokenizer,
             st.session_state.activation_extractor
+        )
+        st.session_state.attribution_analyzer = AttributionAnalyzer(
+            st.session_state.model,
+            st.session_state.tokenizer
         )
 
 def get_head_interpretation(layer: int, head: int, pattern_stats: Dict[str, float]) -> str:
@@ -155,240 +160,19 @@ def main():
             st.session_state.tokenizer,
             st.session_state.activation_extractor
         )
+        st.session_state.attribution_analyzer = AttributionAnalyzer(
+            st.session_state.model,
+            st.session_state.tokenizer
+        )
         st.session_state.attention_maps = None
         
     st.sidebar.title("Navigation")
     analysis_type = st.sidebar.radio(
         "Select Analysis Type",
-        ["Neuron & Attention Analysis", "Behavioral Analysis"]
+        ["Neuron, Attention & Attribution Analysis", "Behavioral Analysis"]
     )
     
-    if analysis_type == "Neuron & Attention Analysis":
-        # Original analysis section
-        st.header("Input Text")
-        input_text = st.text_area("Enter text to analyze:", value="Hello, World!")
-        
-        # Rest of the original analysis code
-        if st.button("Analyze") or st.session_state.attention_maps is not None:
-            if input_text != st.session_state.input_text or st.session_state.attention_maps is None:
-                st.session_state.input_text = input_text
-                st.session_state.attention_maps = st.session_state.attention_vis.get_attention_maps(input_text)
-            
-            # Visualization section
-            st.header("Attention Visualization")
-            layer = st.slider("Select Layer", 0, len(st.session_state.attention_maps)-1, st.session_state.current_layer)
-            head = st.slider("Select Attention Head", 0, st.session_state.attention_maps[0].size(2)-1, st.session_state.current_head)
-            
-            # Update current layer and head
-            st.session_state.current_layer = layer
-            st.session_state.current_head = head
-            
-            # Create and display attention heatmap
-            tokens = st.session_state.tokenizer.tokenize(input_text)
-            fig = st.session_state.attention_vis.create_attention_heatmap(
-                st.session_state.attention_maps, layer, head, tokens
-            )
-            
-            # Add attention pattern analysis
-            pattern_stats = st.session_state.attention_vis.analyze_attention_pattern(
-                st.session_state.attention_maps, layer, head
-            )
-            
-            st.plotly_chart(fig)
-            
-            # Display head interpretation
-            st.subheader("Attention Head Analysis")
-            interpretation = get_head_interpretation(layer, head, pattern_stats)
-            st.info(f"Layer {layer}, Head {head} - Likely Role: {interpretation}")
-            
-            # Display attention pattern statistics in columns
-            st.subheader("Attention Pattern Analysis")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**Pattern Statistics**")
-                st.text(f"Maximum Attention: {pattern_stats['max_attention']:.4f}")
-                st.text(f"Mean Attention: {pattern_stats['mean_attention']:.4f}")
-                st.markdown("""
-                *Maximum Attention*: Strongest single connection between tokens
-                *Mean Attention*: Average attention weight across all connections
-                """)
-            
-            with col2:
-                st.markdown("**Pattern Characteristics**")
-                st.text(f"Attention Entropy: {pattern_stats['entropy']:.4f}")
-                st.text(f"Sparsity Score: {pattern_stats['sparsity']:.4f}")
-                st.markdown("""
-                *Attention Entropy*: How distributed the attention is (higher = more even)
-                *Sparsity Score*: Fraction of low attention weights (< 0.1)
-                """)
-            
-            # Add layer group explanation
-            st.subheader("Layer Group Functions")
-            st.markdown("""
-            **Early Layers (0-4)**
-            - Process basic features and local patterns
-            - Handle syntax and token-level relationships
-            - Build foundational representations
-            
-            **Middle Layers (5-9)**
-            - Integrate information across longer spans
-            - Process semantic relationships
-            - Develop intermediate representations
-            
-            **Late Layers (10-14)**
-            - Handle task-specific processing
-            - Integrate global context
-            - Prepare final output representations
-            """)
-            
-            # Add neuron analysis section
-            st.header("Neuron Analysis")
-            
-            # Extract activations for current layer
-            layer_name = f"model.layers.{layer}"
-            activations = st.session_state.activation_extractor.extract_activations(
-                input_text,
-                [layer_name]
-            )[layer_name]
-            
-            # Get top neurons
-            top_values, top_indices = st.session_state.neuron_analyzer.get_top_neurons(activations)
-            
-            # Create bar chart for neuron activations
-            fig_neurons = go.Figure(data=[
-                go.Bar(
-                    x=[f"Neuron {idx.item()}" for idx in top_indices[0]],
-                    y=[val.item() for val in top_values[0]],
-                    text=[f"{val.item():.4f}" for val in top_values[0]],
-                    textposition='auto',
-                )
-            ])
-            
-            fig_neurons.update_layout(
-                title="Top 10 Most Active Neurons",
-                xaxis_title="Neuron Index",
-                yaxis_title="Activation Value",
-                height=400,
-                margin=dict(l=50, r=50, t=50, b=50)
-            )
-            
-            # Display visualization and text
-            st.plotly_chart(fig_neurons)
-            
-            # Display neuron interpretation
-            st.markdown("""
-            **Neuron Activity Interpretation:**
-            - Higher activation values indicate neurons that respond strongly to the input
-            - Different neurons may specialize in detecting specific patterns or features
-            - Early layer neurons often detect basic features
-            - Later layer neurons typically combine features into higher-level concepts
-            """)
-            
-            # Add correlation analysis for top neurons
-            st.subheader("Top Neuron Correlations")
-            
-            with st.spinner('Computing correlations between top neurons...'):
-                correlations = st.session_state.neuron_analyzer.find_correlated_neurons(
-                    activations,
-                    top_indices,
-                    threshold=0.5
-                )
-            
-            if correlations:
-                # Create correlation network graph for top neurons
-                fig_correlations = go.Figure()
-                
-                # Create node positions in a circle
-                import math
-                n_neurons = len(top_indices[0])
-                node_positions = {
-                    idx.item(): (
-                        math.cos(2*math.pi*i/n_neurons), 
-                        math.sin(2*math.pi*i/n_neurons)
-                    )
-                    for i, idx in enumerate(top_indices[0])
-                }
-                
-                # Add edges (correlations)
-                for i, j, corr in correlations:
-                    x0, y0 = node_positions[i]
-                    x1, y1 = node_positions[j]
-                    
-                    # Calculate midpoint for label position
-                    xmid = (x0 + x1) / 2
-                    ymid = (y0 + y1) / 2
-                    
-                    # Color interpolation: blue (-1) -> white (0) -> red (1)
-                    if corr > 0:
-                        # Positive correlations: white to blue
-                        color = f'rgba(65, 105, 225, {abs(corr)})'  # Royal blue with correlation strength
-                    else:
-                        # Negative correlations: white to red
-                        color = f'rgba(220, 20, 60, {abs(corr)})'   # Crimson red with correlation strength
-                    
-                    # Fixed width for cleaner look
-                    width = 1.5
-                    
-                    # Add line
-                    fig_correlations.add_trace(go.Scatter(
-                        x=[x0, x1, None],
-                        y=[y0, y1, None],
-                        mode='lines',
-                        line=dict(color=color, width=width),
-                        hoverinfo='text',
-                        text=f'Correlation: {corr:.3f}',
-                        showlegend=False
-                    ))
-                    
-                    # Add correlation value label
-                    fig_correlations.add_annotation(
-                        x=xmid,
-                        y=ymid,
-                        text=f'{corr:.2f}',
-                        showarrow=False,
-                        font=dict(size=10, color='white'),
-                        bgcolor='rgba(0,0,0,0.5)',
-                        borderpad=2
-                    )
-                
-                # Add nodes
-                for neuron_idx, (x, y) in node_positions.items():
-                    fig_correlations.add_trace(go.Scatter(
-                        x=[x],
-                        y=[y],
-                        mode='markers+text',
-                        marker=dict(size=15),
-                        text=f'Neuron {neuron_idx}',
-                        textposition='top center',
-                        hoverinfo='text',
-                        showlegend=False
-                    ))
-                
-                fig_correlations.update_layout(
-                    title='Correlations Between Top 10 Most Active Neurons',
-                    showlegend=False,
-                    hovermode='closest',
-                    width=600,
-                    height=600,
-                    margin=dict(l=50, r=50, t=50, b=50),
-                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
-                )
-                
-                st.plotly_chart(fig_correlations)
-                
-                st.markdown("""
-                **Correlation Network Legend:**
-                - Blue lines: Positive correlations (neurons activate together)
-                - Red lines: Negative correlations (neurons have opposite activation patterns)
-                - Line opacity shows correlation strength
-                - Only correlations above 0.5 threshold are shown
-                """)
-            else:
-                st.info("No strong correlations found between top neurons.")
-
-    else:  # Behavioral Analysis
+    if analysis_type == "Behavioral Analysis":
         # Add tabs for different probing types
         probe_tab1, probe_tab2, probe_tab3 = st.tabs([
             "Syntactic Analysis", 
@@ -530,7 +314,11 @@ def main():
                 ("happy", "sad"),
                 ("hot", "cold"),
                 ("big", "large"),
-                ("run", "walk")
+                ("run", "walk"),
+                ("anger", "joy"),
+                ("love", "hate"),
+                ("fast", "slow"),
+                ("light", "dark")
             ]
             
             # Run semantic probe
@@ -637,16 +425,19 @@ def main():
             
             # Input for possible completions
             options = st.text_input(
-                "Enter possible completions (comma-separated):",
-                value="10, 12, 9"
-            ).split(",")
-            options = [opt.strip() for opt in options]
+                "Enter possible continuations (comma-separated):",
+                value="10, 12, 14"
+            )
             
             if st.button("Analyze Pattern"):
-                pattern_results = st.session_state.behavior_probe.probe_patterns(sequence, options)
+                # Convert options string to list
+                option_list = [opt.strip() for opt in options.split(',')]
                 
-                # Create bar chart for pattern completion scores
-                fig_pattern = go.Figure(data=[
+                # Run pattern probe
+                pattern_results = st.session_state.behavior_probe.probe_patterns(sequence, option_list)
+                
+                # Create bar chart for pattern scores
+                fig_patterns = go.Figure(data=[
                     go.Bar(
                         x=list(pattern_results.keys()),
                         y=list(pattern_results.values()),
@@ -655,22 +446,399 @@ def main():
                     )
                 ])
                 
-                fig_pattern.update_layout(
-                    title="Pattern Completion Analysis",
-                    xaxis_title="Possible Completions",
-                    yaxis_title="Continuation Score",
+                fig_patterns.update_layout(
+                    title="Pattern Completion Scores",
+                    xaxis_title="Continuation Options",
+                    yaxis_title="Pattern Match Score",
                     height=400,
                     margin=dict(l=50, r=50, t=50, b=50)
                 )
                 
-                st.plotly_chart(fig_pattern)
+                st.plotly_chart(fig_patterns)
                 
+                # Add interpretation
                 st.markdown("""
-                **Interpretation:**
-                - Lower scores suggest better pattern continuation
-                - Higher scores indicate more deviation from the pattern
-                - Compare scores to understand model's pattern preference
+                **Score Interpretation:**
+                - Higher scores (closer to 1.0) indicate better pattern matches
+                - Pattern matching combines:
+                    - Numerical pattern analysis (70% weight)
+                    - Model's activation patterns (30% weight)
                 """)
+
+    elif analysis_type == "Neuron, Attention & Attribution Analysis":
+        # Common input text field for all tabs
+        st.header("Input Text")
+        input_text = st.text_area("Enter text to analyze:", value="Hello, World!")
+        
+        # Add analyze button right after text input
+        analyze_clicked = st.button("Analyze")
+        
+        # Create tabs for different analysis types
+        analysis_tab1, analysis_tab2, analysis_tab3 = st.tabs([
+            "Attention Patterns", 
+            "Neuron Activity", 
+            "Attribution Analysis"
+        ])
+        
+        # Process input and get attention maps (common for all tabs)
+        if analyze_clicked or st.session_state.attention_maps is not None:
+            if input_text != st.session_state.input_text or st.session_state.attention_maps is None:
+                st.session_state.input_text = input_text
+                st.session_state.attention_maps = st.session_state.attention_vis.get_attention_maps(input_text)
+            
+            with analysis_tab1:
+                # Attention Patterns tab content
+                st.header("Attention Visualization")
+                layer = st.slider("Select Layer", 0, len(st.session_state.attention_maps)-1, st.session_state.current_layer)
+                head = st.slider("Select Attention Head", 0, st.session_state.attention_maps[0].size(2)-1, st.session_state.current_head)
+                
+                # Update current layer and head
+                st.session_state.current_layer = layer
+                st.session_state.current_head = head
+                
+                # Create and display attention heatmap
+                tokens = st.session_state.tokenizer.tokenize(input_text)
+                fig = st.session_state.attention_vis.create_attention_heatmap(
+                    st.session_state.attention_maps, layer, head, tokens
+                )
+                
+                # Add attention pattern analysis
+                pattern_stats = st.session_state.attention_vis.analyze_attention_pattern(
+                    st.session_state.attention_maps, layer, head
+                )
+                
+                st.plotly_chart(fig)
+                
+                # Display head interpretation
+                st.subheader("Attention Head Analysis")
+                interpretation = get_head_interpretation(layer, head, pattern_stats)
+                st.info(f"Layer {layer}, Head {head} - Likely Role: {interpretation}")
+
+                with st.expander("Understanding Attention Patterns", expanded=False):
+                    st.markdown("""
+                    ### Attention Patterns Explained
+                    
+                    **Attention Heads**
+                    - Like spotlights that focus on relationships between words
+                    - Each head specializes in different types of connections
+                    - Multiple heads work together for comprehensive understanding
+                    
+                    **Pattern Types** (referencing ```python:src/dashboard/app.py startLine: 71 endLine: 96```)
+                    - Local Feature Detectors: Focus on nearby words
+                    - Context Gatherers: Look at broader relationships
+                    - Global Integrators: Connect across the entire text
+                    
+                    **Attention Metrics**
+                    - Entropy: How focused vs. scattered the attention is
+                    - Sparsity: How selective the head is in what it attends to
+                    - Like measuring whether a spotlight is narrow or wide
+                    
+                    ### Interpreting the Heatmap
+                    - Darker colors: Stronger attention connections
+                    - Rows: Source tokens (doing the attending)
+                    - Columns: Target tokens (being attended to)
+                    - Patterns reveal different types of linguistic relationships
+                    """)
+                
+                # Display attention pattern statistics in columns
+                st.subheader("Attention Pattern Analysis")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**Pattern Statistics**")
+                    st.text(f"Maximum Attention: {pattern_stats['max_attention']:.4f}")
+                    st.text(f"Mean Attention: {pattern_stats['mean_attention']:.4f}")
+                    st.markdown("""
+                    *Maximum Attention*: Strongest single connection between tokens
+                    *Mean Attention*: Average attention weight across all connections
+                    """)
+                
+                with col2:
+                    st.markdown("**Pattern Characteristics**")
+                    st.text(f"Attention Entropy: {pattern_stats['entropy']:.4f}")
+                    st.text(f"Sparsity Score: {pattern_stats['sparsity']:.4f}")
+                    st.markdown("""
+                    *Attention Entropy*: How distributed the attention is (higher = more even)
+                    *Sparsity Score*: Fraction of low attention weights (< 0.1)
+                    """)
+                
+                # Add layer group explanation
+                st.subheader("Layer Group Functions")
+                st.markdown("""
+                **Early Layers (0-4)**
+                - Process basic features and local patterns
+                - Handle syntax and token-level relationships
+                - Build foundational representations
+                
+                **Middle Layers (5-9)**
+                - Integrate information across longer spans
+                - Process semantic relationships
+                - Develop intermediate representations
+                
+                **Late Layers (10-14)**
+                - Handle task-specific processing
+                - Integrate global context
+                - Prepare final output representations
+                """)
+                
+            with analysis_tab2:
+                # Neuron Activity tab content
+                st.header("Neuron Activity Analysis")
+                
+                with st.expander("Understanding Neuron Activity", expanded=False):
+                    st.markdown("""
+                    ### Neuron Activity Explained
+                    
+                    **Individual Neurons**
+                    - Like specialized detectors in the model's "brain"
+                    - Each neuron responds to specific patterns or features
+                    - Higher activation = stronger response to input
+                    
+                    **Top Neurons**
+                    - Most active neurons are like "experts" for the current input
+                    - Like spotlights highlighting important features
+                    - Different neurons activate for different aspects of language
+                    
+                    **Neuron Sensitivity**
+                    - Measures how much neurons "care" about small input changes
+                    - Like testing how alert each detector is
+                    - Higher sensitivity = more precise feature detection
+                    
+                    ### Interpreting the Visualization
+                    - Bar height: Strength of neuron activation
+                    - Sensitivity score: How precisely tuned the neuron is
+                    - Correlations: How neurons work together
+                    """)
+                
+                # Extract activations for current layer
+                layer_name = f"model.layers.{layer}"
+                activations = st.session_state.activation_extractor.extract_activations(
+                    input_text,
+                    [layer_name]
+                )[layer_name]
+                
+                # Get top neurons
+                top_values, top_indices = st.session_state.neuron_analyzer.get_top_neurons(activations)
+                
+                # Create bar chart for neuron activations
+                fig_neurons = go.Figure(data=[
+                    go.Bar(
+                        x=[f"Neuron {idx.item()}" for idx in top_indices[0]],
+                        y=[val.item() for val in top_values[0]],
+                        text=[f"{val.item():.4f}" for val in top_values[0]],
+                        textposition='auto',
+                    )
+                ])
+                
+                fig_neurons.update_layout(
+                    title="Top 10 Most Active Neurons",
+                    xaxis_title="Neuron Index",
+                    yaxis_title="Activation Value",
+                    height=400,
+                    margin=dict(l=50, r=50, t=50, b=50)
+                )
+                
+                # Display visualization and text
+                st.plotly_chart(fig_neurons)
+                
+                # Display neuron interpretation
+                st.markdown("""
+                **Neuron Activity Interpretation:**
+                - Higher activation values indicate neurons that respond strongly to the input
+                - Different neurons may specialize in detecting specific patterns or features
+                - Early layer neurons often detect basic features
+                - Later layer neurons typically combine features into higher-level concepts
+                """)
+                
+                # Add correlation analysis for top neurons
+                st.subheader("Top Neuron Correlations")
+                
+                with st.spinner('Computing correlations between top neurons...'):
+                    correlations = st.session_state.neuron_analyzer.find_correlated_neurons(
+                        activations,
+                        top_indices,
+                        threshold=0.5
+                    )
+                
+                if correlations:
+                    # Create correlation network graph for top neurons
+                    fig_correlations = go.Figure()
+                    
+                    # Create node positions in a circle
+                    import math
+                    n_neurons = len(top_indices[0])
+                    node_positions = {
+                        idx.item(): (
+                            math.cos(2*math.pi*i/n_neurons), 
+                            math.sin(2*math.pi*i/n_neurons)
+                        )
+                        for i, idx in enumerate(top_indices[0])
+                    }
+                    
+                    # Add edges (correlations)
+                    for i, j, corr in correlations:
+                        x0, y0 = node_positions[i]
+                        x1, y1 = node_positions[j]
+                        
+                        # Calculate midpoint for label position
+                        xmid = (x0 + x1) / 2
+                        ymid = (y0 + y1) / 2
+                        
+                        # Color interpolation: blue (-1) -> white (0) -> red (1)
+                        if corr > 0:
+                            # Positive correlations: white to blue
+                            color = f'rgba(65, 105, 225, {abs(corr)})'  # Royal blue with correlation strength
+                        else:
+                            # Negative correlations: white to red
+                            color = f'rgba(220, 20, 60, {abs(corr)})'   # Crimson red with correlation strength
+                        
+                        # Fixed width for cleaner look
+                        width = 1.5
+                        
+                        # Add line
+                        fig_correlations.add_trace(go.Scatter(
+                            x=[x0, x1, None],
+                            y=[y0, y1, None],
+                            mode='lines',
+                            line=dict(color=color, width=width),
+                            hoverinfo='text',
+                            text=f'Correlation: {corr:.3f}',
+                            showlegend=False
+                        ))
+                        
+                        # Add correlation value label
+                        fig_correlations.add_annotation(
+                            x=xmid,
+                            y=ymid,
+                            text=f'{corr:.2f}',
+                            showarrow=False,
+                            font=dict(size=10, color='white'),
+                            bgcolor='rgba(0,0,0,0.5)',
+                            borderpad=2
+                        )
+                    
+                    # Add nodes
+                    for neuron_idx, (x, y) in node_positions.items():
+                        fig_correlations.add_trace(go.Scatter(
+                            x=[x],
+                            y=[y],
+                            mode='markers+text',
+                            marker=dict(size=15),
+                            text=f'Neuron {neuron_idx}',
+                            textposition='top center',
+                            hoverinfo='text',
+                            showlegend=False
+                        ))
+                    
+                    fig_correlations.update_layout(
+                        title='Correlations Between Top 10 Most Active Neurons',
+                        showlegend=False,
+                        hovermode='closest',
+                        width=600,
+                        height=600,
+                        margin=dict(l=50, r=50, t=50, b=50),
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                    )
+                    
+                    st.plotly_chart(fig_correlations)
+                    
+                    st.markdown("""
+                    **Correlation Network Legend:**
+                    - Blue lines: Positive correlations (neurons activate together)
+                    - Red lines: Negative correlations (neurons have opposite activation patterns)
+                    - Line opacity shows correlation strength
+                    - Only correlations above 0.5 threshold are shown
+                    """)
+                else:
+                    st.info("No strong correlations found between top neurons.")
+
+            with analysis_tab3:
+                # Attribution Analysis tab content
+                st.header("Attribution Analysis")
+                
+                # Add explanation section
+                with st.expander("Understanding Attribution Methods", expanded=False):
+                    st.markdown("""
+                    ### Attribution Methods Explained
+                    
+                    **Layer-wise Relevance Propagation (LRP)**
+                    - Analyzes how each layer's transformations affect the final output
+                    - Like measuring "toll booths" along an information highway
+                    - Shows which tokens are important at specific layers
+                    - More computationally efficient (single backward pass)
+                    
+                    **Integrated Gradients (IG)**
+                    - Follows the complete path of information flow through the model
+                    - Like measuring "traffic flow" along the entire highway
+                    - Provides global attribution scores
+                    - Uses multiple steps for better accuracy
+                    
+                    **Relationship to Residual Stream**
+                    - The residual stream is like an information highway through the model
+                    - LRP focuses on the layer transformations ("toll booths")
+                    - IG focuses on the cumulative information flow ("traffic")
+                    
+                    ### Interpreting the Visualization
+                    - Red bars: Positive contribution to the model's decision
+                    - Blue bars: Negative contribution to the model's decision
+                    - Bar height: Magnitude of importance
+                    - Layer selector: Analyze different depths of the model
+                    """)
+                
+                # Method selection
+                attribution_method = st.radio(
+                    "Select Attribution Method",
+                    ["Integrated Gradients", "Layer-wise Relevance"]
+                )
+                
+                # Layer selection
+                layer = st.slider("Select Layer", 0, 14, 7, key="attribution_layer")
+                layer_name = f"model.layers.{layer}"
+                
+                if st.button("Compute Attribution"):
+                    with st.spinner("Computing attribution scores..."):
+                        if attribution_method == "Integrated Gradients":
+                            results = st.session_state.attribution_analyzer.integrated_gradients(
+                                input_text, layer_name
+                            )
+                        else:
+                            results = st.session_state.attribution_analyzer.layer_relevance_propagation(
+                                input_text, layer_name
+                            )
+                        
+                        # Create token importance visualization
+                        scores = results["scores"].detach().cpu().numpy()
+                        fig = go.Figure(data=[
+                            go.Bar(
+                                x=results["tokens"],
+                                y=scores,
+                                text=[f"{score:.3f}" for score in scores],
+                                textposition='auto',
+                                marker=dict(
+                                    color=scores,
+                                    colorscale='RdBu'
+                                )
+                            )
+                        ])
+                        
+                        fig.update_layout(
+                            title=f"{attribution_method} Attribution Scores",
+                            xaxis_title="Tokens",
+                            yaxis_title="Attribution Score",
+                            height=400,
+                            margin=dict(l=50, r=50, t=50, b=100)
+                        )
+                        
+                        st.plotly_chart(fig)
+                        
+                        st.markdown(f"""
+                        **Attribution Score Interpretation:**
+                        - Higher absolute values indicate more important tokens
+                        - Positive values suggest positive contribution
+                        - Negative values suggest negative contribution
+                        - Aggregated importance: {results['aggregated']:.3f}
+                        """)
 
 if __name__ == "__main__":
     main() 

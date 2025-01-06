@@ -1,25 +1,30 @@
 # Semantic Understanding Findings
 
-## Unexpected Similarity: Anger and Joy
+## Unexpected Word Pair Similarities
 
-### Observation
-The model shows unexpected similarity between seemingly opposite emotions "anger" and "joy". This suggests the model may be capturing shared characteristics rather than their opposing valence.
+### 1. Emotions and Opposites
+- **Anger-Joy**: 0.678 similarity despite being opposing emotions
+- **Love-Hate**: 0.688 similarity despite being opposing concepts
+- **Happy-Sad**: -0.765 (expected negative correlation)
 
-### Analysis
-#### Shared Characteristics
-- Both are high-intensity emotions
-- Both appear in similar linguistic contexts
-- Both represent strong emotional states
+#### Analysis
+The model shows strong positive correlations between seemingly opposite emotional concepts (anger-joy, love-hate) while maintaining expected negative correlation for basic opposites (happy-sad). This suggests:
+- Emotional concepts are grouped by intensity rather than valence
+- Complex emotions share more contextual patterns than simple opposites
+- The model captures linguistic usage patterns over human intuitive relationships
 
-### Technical Evidence
-#### Code Implementation
+### 2. Physical Concepts
+- **Light-Dark**: 0.727 similarity despite being opposites
+- **Fast-Slow**: 0.720 similarity despite being opposites
+- **Hot-Cold**: -0.688 (expected negative correlation)
 
-#### Layer Selection for semantic probe(75% depth)
-```python
-semantic_layer_idx = int(0.75 * num_layers)
-layer_name = f"model.layers.{semantic_layer_idx}"
-```
+#### Analysis
+Physical concepts show varying patterns:
+- Basic temperature opposites (hot-cold) maintain negative correlation
+- Motion and illumination pairs show unexpected positive correlation
+- Suggests these terms often appear in similar contexts despite opposite meanings
 
+### Technical Implementation Reference
 #### Context template
 ```python
 context_template = "In terms of meaning, {} and {} are"
@@ -41,11 +46,17 @@ cossine_similarity = torch.nn.functional.cosine_similarity(embeddings1, embeddin
    - Study context effects
 
 ### Key Insight
-This finding highlights how language models may group concepts based on structural/contextual similarities rather than human-intuitive semantic relationships. The model appears to weight the intensity/arousal dimension of emotions more heavily than their positive/negative valence.
+This finding highlights how language models may group concepts based on structural/contextual similarities rather than human-intuitive semantic relationships. The model appears to weight the intensity/arousal dimension of emotions more 
+heavily than their positive/negative valence.
+
+### Key Insights
+1. The model groups concepts based on:
+   - Contextual co-occurrence
+   - Usage patterns in language
+   - Intensity of concepts
+2. Simple opposites (hot-cold, happy-sad) maintain expected negative correlations
+3. Complex concept pairs show unexpected positive correlations
 
 ### References
-- Implementation: `src/analysis/behavior_probe.py`
-- Semantic probing: lines 70-115
-- Layer selection: line 76
-- Context template: line 81
-- Similarity computation: lines 105-107
+- Implementation: `src/analysis/behavior_probe.py` lines 70-117
+- Semantic probing methodology: lines 105-107
