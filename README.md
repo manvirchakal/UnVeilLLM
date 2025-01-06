@@ -1,6 +1,6 @@
 # UnVeilLLM - Neural Network Interpretability Dashboard
 
-A Python-based tool for exploring and understanding the internal mechanisms of neural networks, with initial focus on the Llama 3.2 1B model.
+A Python-based tool for exploring and understanding the internal mechanisms of neural networks, with initial focus on the Llama 3 family of models.
 
 ## Features
 
