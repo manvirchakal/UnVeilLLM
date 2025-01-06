@@ -28,13 +28,13 @@ git clone https://github.com/manvirchakal/UnVeilLLM
 
 2. Create and activate a virtual environment:
 
-On Linux or MacOS:
+    On Linux or MacOS:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 ```
 
-On Windows:
+    On Windows:
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
@@ -42,9 +42,9 @@ python -m venv .venv
 
 3. Install PyTorch:
 
-Navigate to the [PyTorch website](https://pytorch.org/get-started/locally/) and follow the instructions to install the appropriate version for your system.
+    Navigate to the [PyTorch website](https://pytorch.org/get-started/locally/) and follow the instructions to install the appropriate version for your system.
 
-3. Install dependencies:
+4. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
