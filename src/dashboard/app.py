@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import plotly.graph_objects as go
 from typing import Dict, List
+import numpy as np
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
@@ -94,6 +95,68 @@ def get_head_interpretation(layer: int, head: int, pattern_stats: Dict[str, floa
             return "Global Context Mixer: Integrates information across the full sequence"
         else:
             return "Output Formatter: Prepares for final representation"
+
+def create_layer_progression_chart(all_layer_results: List[Dict[str, torch.Tensor]]) -> go.Figure:
+    """Create a visualization showing LRP progression through layers"""
+    # Extract scores and filter tokens
+    layer_scores = [result["scores"].detach().cpu().numpy() for result in all_layer_results]
+    tokens = all_layer_results[0]["tokens"]
+    content_mask = [i for i, token in enumerate(tokens) if token != "<|begin_of_text|>"]
+    tokens = [token for token in tokens if token != "<|begin_of_text|>"]
+    layer_scores = [scores[content_mask] for scores in layer_scores]
+    
+    # Convert to numpy array
+    z_original = np.array(layer_scores).T
+    
+    def enhance_small_values(x, power=0.3):
+        """Enhance values near zero while preserving relative ordering"""
+        signs = np.sign(x)
+        abs_x = np.abs(x)
+        
+        # Apply power scaling with small exponent to enhance small values
+        # while preserving order (x^0.3 will enhance small values more than x^1)
+        enhanced = signs * np.power(abs_x, power)
+        
+        # Normalize back to [-1, 1] range
+        max_abs = np.max(np.abs(enhanced))
+        if max_abs > 0:
+            enhanced = enhanced / max_abs
+            
+        return enhanced
+    
+    z_enhanced = enhance_small_values(z_original)
+    
+    # Create heatmap
+    fig = go.Figure(data=go.Heatmap(
+        z=z_enhanced,
+        x=[f"Layer {i}" for i in range(len(layer_scores))],
+        y=tokens,
+        colorscale='RdBu',
+        zmid=0,
+        zmin=-1,
+        zmax=1,
+        hoverongaps=False,
+        hovertemplate=(
+            'Layer: %{x}<br>'
+            'Token: %{y}<br>'
+            'Original LRP Score: %{customdata:.4f}<br>'
+            'Enhanced Score: %{z:.4f}<br>'
+            '<extra></extra>'
+        ),
+        customdata=z_original
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        title="LRP Mappings Through Layers (Exaggerated, not to scale)",
+        xaxis_title="Model Layers",
+        yaxis_title="Tokens",
+        height=400,
+        margin=dict(l=50, r=50, t=50, b=50),
+        yaxis=dict(autorange="reversed")
+    )
+    
+    return fig
 
 def main():
     st.title("UnVeilLLM - Neural Network Interpretability Tool")
@@ -485,6 +548,17 @@ def main():
             if input_text != st.session_state.input_text or st.session_state.attention_maps is None:
                 st.session_state.input_text = input_text
                 st.session_state.attention_maps = st.session_state.attention_vis.get_attention_maps(input_text)
+                
+                # Recompute layer progression results when text changes
+                with st.spinner("Computing layer progression..."):
+                    all_layer_results = []
+                    for layer_idx in range(15):
+                        layer_name = f"model.layers.{layer_idx}"
+                        results = st.session_state.attribution_analyzer.layer_relevance_propagation(
+                            input_text, layer_name
+                        )
+                        all_layer_results.append(results)
+                    st.session_state.layer_progression_results = all_layer_results
             
             with analysis_tab1:
                 # Attention Patterns tab content
@@ -757,7 +831,12 @@ def main():
                 # Attribution Analysis tab content
                 st.header("Attribution Analysis")
                 
-                # Add explanation section
+                # Display layer progression chart first
+                st.subheader("LRP Mappings Through Layers")
+                progression_fig = create_layer_progression_chart(st.session_state.layer_progression_results)
+                st.plotly_chart(progression_fig, key="layer_progression_default")
+                
+                # Rest of the attribution analysis UI
                 with st.expander("Understanding Attribution Methods", expanded=False):
                     st.markdown("""
                     ### Attribution Methods Explained
@@ -798,14 +877,15 @@ def main():
                 
                 if st.button("Compute Attribution"):
                     with st.spinner("Computing attribution scores..."):
-                        if attribution_method == "Integrated Gradients":
-                            results = st.session_state.attribution_analyzer.integrated_gradients(
-                                input_text, layer_name
-                            )
-                        else:
+                        # Recompute layer progression results
+                        all_layer_results = []
+                        for layer_idx in range(15):
+                            layer_name = f"model.layers.{layer_idx}"
                             results = st.session_state.attribution_analyzer.layer_relevance_propagation(
                                 input_text, layer_name
                             )
+                            all_layer_results.append(results)
+                        st.session_state.layer_progression_results = all_layer_results
                         
                         # Create token importance visualization
                         scores = results["scores"].detach().cpu().numpy()
@@ -830,7 +910,7 @@ def main():
                             margin=dict(l=50, r=50, t=50, b=100)
                         )
                         
-                        st.plotly_chart(fig)
+                        st.plotly_chart(fig, key="attribution_scores")
                         
                         st.markdown(f"""
                         **Attribution Score Interpretation:**
